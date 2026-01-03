@@ -1,8 +1,8 @@
-# 第2次隨堂題目-隨堂-QZ2
+# 第1次練習題目-練習-PC1
 >
->學號：1234567   (學號和姓名都要寫)
+>學號：112111102
 ><br />
->姓名：王小明
+>姓名：吳映潔
 >
 
 本份文件包含以下主題：(至少需下面兩項，若是有多者可以自行新增)
@@ -10,84 +10,145 @@
 
 ## 說明程式與內容
 
-開始寫說明，該說明需說明想法，
-並於之後再對上述想法的每一部分將程式進一步進行展現，
-若需引用程式區則使用下面方法，
-若為.cs檔內程式除了於敘述中需註明檔案名稱外，
-還需使用語法` ```語言種類 程式碼 ``` `，其中語言種類若是要用python則使用py，java則使用java，C/C++則使用cpp，
-下段程式碼為語言種類選擇csharp使用後結果：
+> 老師您好，我在answer.md的格式上做了一些微調（原模板感覺更像期中考格式）。若與您要求的格式有出入，還請老師見諒。
 
-```csharp
-public void mt_getResult(){
-    ...
+這次練習主要是把原本擠在一起的 2b.js 拆開，重構成模組化設計。
+
+1. 
+
+### 程式部分：
+
+### 第一部分：MIME 類型模組
+[cite_start]把原本亂放的 MIME 列表抽出來放到 `utils/mimeTypes.js` [cite: 10, 12][cite_start]。還寫了 `getContentType` 函式來查格式，要是沒查到副檔名就給預設值，比較保險 [cite: 13]。
+
+```js
+const contentTypes = {
+  '.html': 'text/html; charset=utf-8',
+  '.ejs': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon'
+};
+
+export function getContentType(extname) {
+  return contentTypes[extname] || 'text/plain';
 }
 ```
 
-若要於內文中標示部分網頁檔，則使用以下標籤` ```html 程式碼 ``` `，
-下段程式碼則為使用後結果：
+> 本來在 2b.js 是直接拿物件來用，現在包成函式還加了預設值，程式比較不會掛掉。
 
-```html
-<%@ Page Language="C#" AutoEventWireup="true" ...>
+### 第二部分：模板渲染模組
 
-<!DOCTYPE html>
+這部分負責處理 EJS。把讀檔跟渲染包成 renderTemplate ，加上一個 render404 方便隨時呼叫。
 
-<html xmlns="http://www.w3.org/1999/xhtml">
-<head runat="server">
-<meta http-equiv="Content-Type" ...>
-    <title></title>
-</head>
-<body>
-    <form id="form1" runat="server">
-        <div>
-        </div>
-    </form>
-</body>
-</html>
+```js
+import fs from 'fs';
+import ejs from 'ejs';
+
+export function renderTemplate(res, filePath, data = {}) {
+  fs.readFile('.' + filePath, 'utf8', (err, template) => {
+    if (err) {
+      res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end('錯誤：無法讀取模板文件 - ' + err.message);
+      return;
+    }
+
+    try {
+      const html = ejs.render(template, data);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+    } catch (renderErr) {
+      res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end('渲染錯誤：' + renderErr.message);
+    }
+  });
+}
+
+export function render404(res) {
+  renderTemplate(res, '/index3.ejs');
+}
 ```
-更多markdown方法可參閱[https://ithelp.ithome.com.tw/articles/10203758](https://ithelp.ithome.com.tw/articles/10203758)
+> 多加了 try...catch 抓渲染錯誤，這樣 EJS 寫錯時才不會讓整個伺服器掛掉。
 
-請在撰寫"說明程式與內容"該塊內容，請把原該塊內上述敘述刪除，該塊上述內容只是用來指引該怎麼撰寫內容。
+### 第三部分：靜態文件處理模組
 
-1. a.
+處理 CSS、JS 那些靜態檔案。檔案存在就照設定格式送出，不在就直接丟 404 頁面。
 
-Ans: 
+```js
+import fs from 'fs';
+import path from 'path';
+import { getContentType } from './mimeTypes.js';
+import { render404 } from './templateRenderer.js';
 
+export function handleStaticFile(res, filePath) {
+  const staticFilePath = '.' + filePath;
+  const extname = path.extname(filePath);
 
+  fs.readFile(staticFilePath, (err, content) => {
+    if (err) {
+      render404(res);
+    } else {
+      const contentType = getContentType(extname);
+      res.writeHead(200, { 'Content-Type': contentType });
+      res.end(content);
+    }
+  });
+}
+```
 
+> 把查路徑、讀檔、設定格式跟報錯通通包在一起。
 
-1. b.
+### 第四部分：重構主檔案
 
-Ans:
+現在主檔案 2b-refactored.js 變超簡短，只要看 URL 走哪條路就好，細節都交給前面的模組。
 
-<!-- 請撰寫時，最後一句話再寫一次 -->
+```js
+import http from 'http';
+import { renderTemplate } from './utils/templateRenderer.js';
+import { handleStaticFile } from './utils/staticFileHandler.js';
 
+http.createServer((req, res) => {
+  const url = req.url;
 
-1. c.
+  switch (url) {
+    case '/':
+      // 渲染首頁
+      renderTemplate(res, '/index.ejs', { data: "您好 xxx" });
+      break;
+    
+    case '/calculator':
+      // 渲染計算機
+      renderTemplate(res, '/index2.ejs');
+      break;
 
-Ans:
+    default:
+      // 其他都當靜態檔案試試看
+      handleStaticFile(res, url);
+      break;
+  }
 
-<!--  請撰寫時，第一句話再寫一次  -->
+}).listen(3000, () => {
+  console.log('伺服器已啟動！請訪問 http://localhost:3000');
+});
+```
 
-2. a.
+> 引入那三個寫好的模組後，用 switch 判斷路由。
 
-Ans:
+### 執行成果：
 
-<!--  請撰寫時，第一句話再寫一次  -->
+1. 首頁渲染 (/)
 
-2. b.
+![描述](2.png)
 
-Ans:
+2. 計算器頁面 (/calculator)
 
-<!--  請撰寫時，第一句話再寫一次  -->
+![描述](3.png)
 
-2. c.
+3. 404 錯誤頁面與靜態檔案處理測試
 
-Ans:
-
-<!--  請撰寫時，第一句話和最後一句再寫一次  -->
-
-2. d.
-
-Ans:
-
-
+![描述](1.png)
